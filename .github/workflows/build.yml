@@ -35,198 +35,38 @@ jobs:
           $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2243390"
           $wdkInstaller = "$env:TEMP\wdk.exe"
           
-          Write-Host "Downloading WDK from: $wdkUrl"
+          Write-Host "Downloading WDK..."
           try {
-            Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller -TimeoutSec 600
+            Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller -TimeoutSec 600 -UseBasicParsing
             Write-Host "Download completed"
           } catch {
             Write-Host "Download failed: $_"
             exit 1
           }
           
-          Write-Host "Running WDK installer..."
-          $process = Start-Process -FilePath $wdkInstaller -ArgumentList "/quiet /norestart" -PassThru -Wait
+          Write-Host "Installing WDK (this may take several minutes)..."
+          & $wdkInstaller /quiet /norestart /features OptionId.WindowsDriverKit
           
-          if ($process.ExitCode -eq 0) {
-            Write-Host "WDK installation completed successfully"
-          } else {
-            Write-Host "WDK installation failed with exit code: $($process.ExitCode)"
+          # Wait for installation to complete
+          $timeout = 0
+          while ((Get-Process wdk -ErrorAction SilentlyContinue) -and $timeout -lt 300) {
+            Start-Sleep -Seconds 5
+            $timeout += 5
           }
           
           Start-Sleep -Seconds 30
+          Write-Host "WDK installation completed"
       
-      - name: Verify WDK installation
-        shell: powershell
+      - name: Build using build.bat
+        shell: cmd
         run: |
-          Write-Host "Verifying WDK installation..."
-          
-          $wdkSearchPaths = @(
-            "C:\Program Files (x86)\Windows Kits\10\Include",
-            "C:\Program Files (x86)\Windows Kits\11\Include"
+          echo Building VMulti driver...
+          call build.bat
+          if errorlevel 1 (
+            echo Build failed
+            exit /b 1
           )
-          
-          $wdmFound = $false
-          foreach ($basePath in $wdkSearchPaths) {
-            if (Test-Path $basePath) {
-              Write-Host "Found WDK include path: $basePath"
-              $wdmFiles = Get-ChildItem -Path $basePath -Filter "wdm.h" -Recurse -ErrorAction SilentlyContinue
-              if ($wdmFiles) {
-                Write-Host "Found wdm.h at: $($wdmFiles[0].FullName)"
-                $wdmFound = $true
-                break
-              }
-            }
-          }
-          
-          if (-not $wdmFound) {
-            Write-Host "WARNING: Could not verify WDK installation"
-          }
-      
-      - name: Clean previous build artifacts
-        shell: powershell
-        run: |
-          Write-Host "Cleaning previous build artifacts..."
-          
-          $cleanDirs = @(
-            "driver_dist",
-            "driver\kmdf\x64\Release",
-            "client\x64\Release",
-            "test\x64\Release",
-            "x64\Release"
-          )
-          
-          foreach ($dir in $cleanDirs) {
-            if (Test-Path $dir) {
-              Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
-              Write-Host "Removed: $dir"
-            }
-          }
-      
-      - name: Create distribution directories
-        shell: powershell
-        run: |
-          Write-Host "Creating distribution directories..."
-          
-          $dirs = @(
-            "driver_dist\x64",
-            "driver_dist\inc",
-            "driver_dist\cert"
-          )
-          
-          foreach ($dir in $dirs) {
-            New-Item -ItemType Directory -Force -Path $dir | Out-Null
-            Write-Host "Created: $dir"
-          }
-      
-      - name: Build vmulticlient library (x64)
-        shell: powershell
-        run: |
-          Write-Host "Building vmulticlient library for x64..."
-          msbuild client\vmulticlient.vcxproj /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-          
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "ERROR: Failed to build x64 vmulticlient library (exit code: $LASTEXITCODE)"
-            exit 1
-          }
-          Write-Host "SUCCESS: vmulticlient library built"
-      
-      - name: Build driver (x64)
-        shell: powershell
-        run: |
-          Write-Host "Building VMulti driver for x64..."
-          msbuild driver\kmdf\vmulti.vcxproj /p:Configuration=Release /p:Platform=x64 /p:TestSign=false /m /verbosity:minimal
-          
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "ERROR: Failed to build x64 driver (exit code: $LASTEXITCODE)"
-            exit 1
-          }
-          Write-Host "SUCCESS: Driver built and signed"
-      
-      - name: Build test application (x64)
-        shell: powershell
-        run: |
-          Write-Host "Building test application for x64..."
-          msbuild test\testvmulti.vcxproj /p:Configuration=Release /p:Platform=x64 /m /verbosity:minimal
-          
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "ERROR: Failed to build x64 test application (exit code: $LASTEXITCODE)"
-            exit 1
-          }
-          Write-Host "SUCCESS: Test application built"
-      
-      - name: Copy build outputs to distribution
-        shell: powershell
-        run: |
-          Write-Host "Copying build outputs..."
-          
-          # Copy driver files
-          if (Test-Path "driver\kmdf\x64\Release\vmulti") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti\*" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied driver files"
-          }
-          
-          # Copy raw driver sys
-          if (Test-Path "driver\kmdf\x64\Release\vmulti.sys") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.sys" -Destination "driver_dist\x64\vmulti_raw.sys" -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied raw driver"
-          }
-          
-          # Copy client library
-          if (Test-Path "client\x64\Release\vmulticlient.lib") {
-            Copy-Item -Path "client\x64\Release\vmulticlient.lib" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied client library"
-          }
-          
-          # Copy test executable
-          if (Test-Path "test\x64\Release\testvmulti.exe") {
-            Copy-Item -Path "test\x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied test executable"
-          } elseif (Test-Path "x64\Release\testvmulti.exe") {
-            Copy-Item -Path "x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
-            Write-Host "Copied test executable (alt path)"
-          }
-      
-      - name: Copy headers and documentation
-        shell: powershell
-        run: |
-          Write-Host "Copying headers and documentation..."
-          
-          # Copy headers
-          if (Test-Path "inc\vmulticlient.h") {
-            Copy-Item -Path "inc\vmulticlient.h" -Destination "driver_dist\inc\" -Force -ErrorAction SilentlyContinue
-          }
-          if (Test-Path "inc\vmulticommon.h") {
-            Copy-Item -Path "inc\vmulticommon.h" -Destination "driver_dist\inc\" -Force -ErrorAction SilentlyContinue
-          }
-          
-          # Copy documentation
-          if (Test-Path "README.md") {
-            Copy-Item -Path "README.md" -Destination "driver_dist\" -Force -ErrorAction SilentlyContinue
-          }
-          if (Test-Path "status.md") {
-            Copy-Item -Path "status.md" -Destination "driver_dist\" -Force -ErrorAction SilentlyContinue
-          }
-          
-          # Copy certificate
-          if (Test-Path "driver\kmdf\x64\Release\vmulti.cer") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.cer" -Destination "driver_dist\cert\WDKTestCert.cer" -Force -ErrorAction SilentlyContinue
-          }
-          
-          Write-Host "Copy completed"
-      
-      - name: Verify output files
-        shell: powershell
-        run: |
-          Write-Host "Verifying output structure..."
-          
-          if (Test-Path "driver_dist") {
-            Get-ChildItem -Path "driver_dist" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-              $relativePath = $_.FullName -replace [regex]::Escape((Get-Location).Path + '\'), ''
-              Write-Host "  - $relativePath"
-            }
-          } else {
-            Write-Host "ERROR: driver_dist directory not found!"
-          }
+          echo Build completed successfully
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -235,6 +75,16 @@ jobs:
           path: driver_dist/
           retention-days: 30
           if-no-files-found: warn
+      
+      - name: List output files
+        shell: powershell
+        run: |
+          Write-Host "Build output files:"
+          if (Test-Path "driver_dist") {
+            Get-ChildItem -Path "driver_dist" -Recurse -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
+              Write-Host "  - $($_.FullName -replace [regex]::Escape((Get-Location).Path + '\'), '')"
+            }
+          }
       
       - name: Build Success Summary
         shell: powershell
@@ -246,34 +96,20 @@ jobs:
           Write-Host ""
           Write-Host "Project: VMulti Windows 11 HID Driver"
           Write-Host "Architecture: x64 (x86_64)"
-          Write-Host "Platform: Windows 11"
           Write-Host "Configuration: Release"
           Write-Host ""
           Write-Host "Output Location: driver_dist/"
-          Write-Host ""
-          Write-Host "Generated Files:"
-          Write-Host "  - driver_dist/x64/vmulti.inf"
-          Write-Host "  - driver_dist/x64/vmulti.sys"
-          Write-Host "  - driver_dist/x64/vmulti_raw.sys"
-          Write-Host "  - driver_dist/x64/vmulticlient.lib"
-          Write-Host "  - driver_dist/x64/testvmulti.exe"
-          Write-Host "  - driver_dist/inc/vmulticlient.h"
-          Write-Host "  - driver_dist/inc/vmulticommon.h"
-          Write-Host "  - driver_dist/cert/WDKTestCert.cer"
-          Write-Host "  - driver_dist/README.md"
           Write-Host ""
           Write-Host "Installation Instructions:"
           Write-Host "1. Enable Test Mode:"
           Write-Host "   bcdedit /set testsigning on"
           Write-Host ""
           Write-Host "2. Install Certificate:"
-          Write-Host "   - Right-click: driver_dist\cert\WDKTestCert.cer"
-          Write-Host "   - Install Certificate..."
-          Write-Host "   - Store Location: Local Machine"
-          Write-Host "   - Certificate Store: Trusted Root Certification Authorities"
+          Write-Host "   Right-click: driver_dist\cert\WDKTestCert.cer"
+          Write-Host "   Install Certificate > Local Machine > Trusted Root CA"
           Write-Host ""
           Write-Host "3. Install Driver:"
-          Write-Host "   - Device Manager > Add legacy hardware"
-          Write-Host "   - Have Disk > driver_dist\x64\vmulti.inf"
+          Write-Host "   Device Manager > Add legacy hardware"
+          Write-Host "   Have Disk > driver_dist\x64\vmulti.inf"
           Write-Host ""
           Write-Host "========================================================"

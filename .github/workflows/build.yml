@@ -1,7 +1,6 @@
 name: Build VMulti Windows 11 Driver (x64)
 
 on:
-  push:
   workflow_dispatch:
 
 jobs:
@@ -17,16 +16,22 @@ jobs:
         with:
           vs-version: 'latest'
       
-      - name: Setup Windows Driver Kit (WDK)
+      - name: Install Windows Driver Kit (WDK)
         run: |
-          $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2243390"
-          $wdkInstaller = "$env:TEMP\wdk.exe"
-          Write-Host "Downloading WDK..."
-          Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller
-          Write-Host "Installing WDK..."
-          & $wdkInstaller /S /D="C:\Program Files (x86)\Windows Kits\11"
-          Start-Sleep -Seconds 30
-          Write-Host "WDK installation complete"
+          Write-Host "Installing WDK via Chocolatey..."
+          choco install -y windows-driver-kit
+          Write-Host "WDK installed successfully"
+        shell: powershell
+      
+      - name: Verify WDK installation
+        run: |
+          Write-Host "Verifying WDK installation..."
+          if (Test-Path "C:\Program Files (x86)\Windows Kits\10\bin") {
+            Write-Host "WDK found at: C:\Program Files (x86)\Windows Kits\10"
+            Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin"
+          } else {
+            Write-Host "WDK not found in standard location!"
+          }
         shell: powershell
       
       - name: Clean previous build artifacts

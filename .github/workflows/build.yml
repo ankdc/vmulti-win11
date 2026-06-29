@@ -1,6 +1,7 @@
 name: Build VMulti Windows 11 Driver (x64)
 
 on:
+  push:
   workflow_dispatch:
 
 jobs:
@@ -18,7 +19,6 @@ jobs:
       
       - name: Setup Windows Driver Kit (WDK)
         run: |
-          # Download and install WDK for Windows 11
           $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2243390"
           $wdkInstaller = "$env:TEMP\wdk.exe"
           Write-Host "Downloading WDK..."
@@ -37,16 +37,16 @@ jobs:
           if (Test-Path "client\x64\Release") { Remove-Item -Recurse -Force "client\x64\Release" }
           if (Test-Path "test\x64\Release") { Remove-Item -Recurse -Force "test\x64\Release" }
           if (Test-Path "x64\Release") { Remove-Item -Recurse -Force "x64\Release" }
-          Write-Host "✓ Cleaned previous build artifacts"
+          Write-Host "Cleaned previous build artifacts"
         shell: powershell
       
       - name: Create distribution directory
         run: |
           Write-Host "Creating distribution directory structure..."
-          New-Item -ItemType Directory -Force -Path "driver_dist\x64"
-          New-Item -ItemType Directory -Force -Path "driver_dist\inc"
-          New-Item -ItemType Directory -Force -Path "driver_dist\cert"
-          Write-Host "✓ Distribution directory created"
+          New-Item -ItemType Directory -Force -Path "driver_dist\x64" | Out-Null
+          New-Item -ItemType Directory -Force -Path "driver_dist\inc" | Out-Null
+          New-Item -ItemType Directory -Force -Path "driver_dist\cert" | Out-Null
+          Write-Host "Distribution directory created"
         shell: powershell
       
       - name: Build vmulticlient library (x64)
@@ -54,10 +54,10 @@ jobs:
           Write-Host "Building vmulticlient library for x64..."
           msbuild client\vmulticlient.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "❌ Failed to build x64 vmulticlient library"
+            Write-Host "Failed to build x64 vmulticlient library"
             exit 1
           }
-          Write-Host "✓ vmulticlient library (x64) built successfully"
+          Write-Host "vmulticlient library (x64) built successfully"
         shell: powershell
       
       - name: Build driver (x64)
@@ -65,10 +65,10 @@ jobs:
           Write-Host "Building VMulti driver for x64..."
           msbuild driver\kmdf\vmulti.vcxproj /p:Configuration=Release /p:Platform=x64 /p:TestSign=false /m
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "❌ Failed to build x64 driver"
+            Write-Host "Failed to build x64 driver"
             exit 1
           }
-          Write-Host "✓ VMulti driver (x64) built and signed successfully"
+          Write-Host "VMulti driver (x64) built and signed successfully"
         shell: powershell
       
       - name: Build test application (x64)
@@ -76,42 +76,35 @@ jobs:
           Write-Host "Building test application for x64..."
           msbuild test\testvmulti.vcxproj /p:Configuration=Release /p:Platform=x64 /m
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "❌ Failed to build x64 test application"
+            Write-Host "Failed to build x64 test application"
             exit 1
           }
-          Write-Host "✓ Test application (x64) built successfully"
+          Write-Host "Test application (x64) built successfully"
         shell: powershell
       
       - name: Copy x64 files to distribution
         run: |
           Write-Host "Copying x64 files to distribution directory..."
           
-          # Copy driver package files
           if (Test-Path "driver\kmdf\x64\Release\vmulti\*") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti\*" -Destination "driver_dist\x64\" -Force
-            Write-Host "✓ Driver package files copied"
+            Copy-Item -Path "driver\kmdf\x64\Release\vmulti\*" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
           }
           
-          # Copy raw driver file
           if (Test-Path "driver\kmdf\x64\Release\vmulti.sys") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.sys" -Destination "driver_dist\x64\vmulti_raw.sys" -Force
-            Write-Host "✓ Raw driver file copied"
+            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.sys" -Destination "driver_dist\x64\vmulti_raw.sys" -Force -ErrorAction SilentlyContinue
           }
           
-          # Copy client library
           if (Test-Path "client\x64\Release\vmulticlient.lib") {
-            Copy-Item -Path "client\x64\Release\vmulticlient.lib" -Destination "driver_dist\x64\" -Force
-            Write-Host "✓ Client library copied"
+            Copy-Item -Path "client\x64\Release\vmulticlient.lib" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
           }
           
-          # Copy test application
           if (Test-Path "test\x64\Release\testvmulti.exe") {
-            Copy-Item -Path "test\x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force
-            Write-Host "✓ Test executable copied"
+            Copy-Item -Path "test\x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
           } elseif (Test-Path "x64\Release\testvmulti.exe") {
-            Copy-Item -Path "x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force
-            Write-Host "✓ Test executable copied"
+            Copy-Item -Path "x64\Release\testvmulti.exe" -Destination "driver_dist\x64\" -Force -ErrorAction SilentlyContinue
           }
+          
+          Write-Host "x64 files copied successfully"
         shell: powershell
       
       - name: Copy header files
@@ -119,13 +112,13 @@ jobs:
           Write-Host "Copying header files..."
           
           if (Test-Path "inc\vmulticlient.h") {
-            Copy-Item -Path "inc\vmulticlient.h" -Destination "driver_dist\inc\" -Force
+            Copy-Item -Path "inc\vmulticlient.h" -Destination "driver_dist\inc\" -Force -ErrorAction SilentlyContinue
           }
           if (Test-Path "inc\vmulticommon.h") {
-            Copy-Item -Path "inc\vmulticommon.h" -Destination "driver_dist\inc\" -Force
+            Copy-Item -Path "inc\vmulticommon.h" -Destination "driver_dist\inc\" -Force -ErrorAction SilentlyContinue
           }
           
-          Write-Host "✓ Header files copied"
+          Write-Host "Header files copied"
         shell: powershell
       
       - name: Copy documentation
@@ -133,13 +126,13 @@ jobs:
           Write-Host "Copying documentation..."
           
           if (Test-Path "README.md") {
-            Copy-Item -Path "README.md" -Destination "driver_dist\" -Force
+            Copy-Item -Path "README.md" -Destination "driver_dist\" -Force -ErrorAction SilentlyContinue
           }
           if (Test-Path "status.md") {
-            Copy-Item -Path "status.md" -Destination "driver_dist\" -Force
+            Copy-Item -Path "status.md" -Destination "driver_dist\" -Force -ErrorAction SilentlyContinue
           }
           
-          Write-Host "✓ Documentation copied"
+          Write-Host "Documentation copied"
         shell: powershell
       
       - name: Copy certificate
@@ -147,18 +140,16 @@ jobs:
           Write-Host "Copying certificate files..."
           
           if (Test-Path "driver\kmdf\x64\Release\vmulti.cer") {
-            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.cer" -Destination "driver_dist\cert\WDKTestCert.cer" -Force
-            Write-Host "✓ Certificate copied"
+            Copy-Item -Path "driver\kmdf\x64\Release\vmulti.cer" -Destination "driver_dist\cert\WDKTestCert.cer" -Force -ErrorAction SilentlyContinue
           }
+          
+          Write-Host "Certificate copied"
         shell: powershell
       
       - name: List distribution contents
         run: |
-          Write-Host "`nDistribution directory structure:"
-          Get-ChildItem -Recurse "driver_dist" | ForEach-Object {
-            $indent = (($_.FullName | Select-String -Pattern '\\' -AllMatches).Matches.Count - (Get-Item "driver_dist").FullName | Select-String -Pattern '\\' -AllMatches).Matches.Count) * "  "
-            Write-Host "$indent- $($_.Name)"
-          }
+          Write-Host "Distribution directory structure:"
+          Get-ChildItem -Recurse "driver_dist" -ErrorAction SilentlyContinue | Select-Object FullName
         shell: powershell
       
       - name: Upload build artifacts
@@ -171,13 +162,16 @@ jobs:
       
       - name: Build Summary
         run: |
-          Write-Host "`n=== BUILD SUMMARY ===" -ForegroundColor Green
-          Write-Host "✅ Build completed successfully!" -ForegroundColor Green
-          Write-Host "`nArchitecture: x64 (x86_64)" -ForegroundColor Cyan
-          Write-Host "Platform: Windows 11" -ForegroundColor Cyan
-          Write-Host "Configuration: Release" -ForegroundColor Cyan
-          Write-Host "`nOutput Directory: driver_dist/" -ForegroundColor Yellow
-          Write-Host "`nFiles generated:" -ForegroundColor Yellow
+          Write-Host "BUILD SUMMARY"
+          Write-Host "============="
+          Write-Host "Build completed successfully!"
+          Write-Host "Architecture: x64 (x86_64)"
+          Write-Host "Platform: Windows 11"
+          Write-Host "Configuration: Release"
+          Write-Host ""
+          Write-Host "Output Directory: driver_dist/"
+          Write-Host ""
+          Write-Host "Files generated:"
           Write-Host "  - driver_dist/x64/vmulti.inf"
           Write-Host "  - driver_dist/x64/vmulti.sys"
           Write-Host "  - driver_dist/x64/vmulti_raw.sys"
@@ -186,7 +180,8 @@ jobs:
           Write-Host "  - driver_dist/inc/vmulticlient.h"
           Write-Host "  - driver_dist/inc/vmulticommon.h"
           Write-Host "  - driver_dist/cert/WDKTestCert.cer"
-          Write-Host "`nNext steps:" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "Next steps:"
           Write-Host "1. Enable test mode: bcdedit /set testsigning on"
           Write-Host "2. Install certificate from driver_dist\cert\WDKTestCert.cer"
           Write-Host "3. Use Device Manager to install driver with driver_dist\x64\vmulti.inf"

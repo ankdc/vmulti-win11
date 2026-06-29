@@ -1,0 +1,154 @@
+name: Build VMulti Windows 11 Driver
+
+on:
+  workflow_dispatch:
+
+env:
+  SOLUTION_FILE_PATH: .
+  BUILD_CONFIGURATION: Release
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        platform: [x64, ARM64]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1
+
+    - name: Install WDK
+      run: |
+        # Download and install Windows Driver Kit (WDK) for Windows 11
+        $wdkInstaller = "$env:TEMP\wdksetup.exe"
+        $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2249362"
+        
+        Write-Host "Downloading WDK installer..."
+        Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller
+        
+        Write-Host "Installing WDK..."
+        & $wdkInstaller /features OptionId.WindowsDesktopDeveloperKit /q
+        
+        # Wait for installation to complete
+        Start-Sleep -Seconds 120
+        
+        Write-Host "WDK installation completed"
+
+    - name: Build vmulticlient library (${{ matrix.platform }})
+      run: |
+        msbuild client\vmulticlient.vcxproj `
+          /p:Configuration=${{ env.BUILD_CONFIGURATION }} `
+          /p:Platform=${{ matrix.platform }} `
+          /m
+      shell: pwsh
+
+    - name: Build driver (${{ matrix.platform }})
+      run: |
+        msbuild driver\kmdf\vmulti.vcxproj `
+          /p:Configuration=${{ env.BUILD_CONFIGURATION }} `
+          /p:Platform=${{ matrix.platform }} `
+          /p:TestSign=false `
+          /m
+      shell: pwsh
+
+    - name: Build test application (${{ matrix.platform }})
+      run: |
+        msbuild test\testvmulti.vcxproj `
+          /p:Configuration=${{ env.BUILD_CONFIGURATION }} `
+          /p:Platform=${{ matrix.platform }} `
+          /m
+      shell: pwsh
+
+    - name: Create distribution directory structure
+      run: |
+        mkdir -p driver_dist\${{ matrix.platform }}
+        mkdir -p driver_dist\inc
+        mkdir -p driver_dist\cert
+      shell: bash
+
+    - name: Copy ${{ matrix.platform }} driver files
+      run: |
+        # Copy driver files
+        if (Test-Path "driver\kmdf\${{ matrix.platform }}\Release\vmulti\*") {
+          Copy-Item -Path "driver\kmdf\${{ matrix.platform }}\Release\vmulti\*" -Destination "driver_dist\${{ matrix.platform }}\" -Recurse -Force
+        }
+        
+        # Copy raw driver file
+        if (Test-Path "driver\kmdf\${{ matrix.platform }}\Release\vmulti.sys") {
+          Copy-Item -Path "driver\kmdf\${{ matrix.platform }}\Release\vmulti.sys" -Destination "driver_dist\${{ matrix.platform }}\vmulti_raw.sys" -Force
+        }
+        
+        # Copy client library
+        if (Test-Path "client\${{ matrix.platform }}\Release\vmulticlient.lib") {
+          Copy-Item -Path "client\${{ matrix.platform }}\Release\vmulticlient.lib" -Destination "driver_dist\${{ matrix.platform }}\" -Force
+        }
+        
+        # Copy test application
+        if (Test-Path "test\${{ matrix.platform }}\Release\testvmulti.exe") {
+          Copy-Item -Path "test\${{ matrix.platform }}\Release\testvmulti.exe" -Destination "driver_dist\${{ matrix.platform }}\" -Force
+        }
+        
+        # Alternative test application path
+        if (Test-Path "${{ matrix.platform }}\Release\testvmulti.exe") {
+          Copy-Item -Path "${{ matrix.platform }}\Release\testvmulti.exe" -Destination "driver_dist\${{ matrix.platform }}\" -Force
+        }
+      shell: pwsh
+
+  finalize:
+    needs: build
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create final distribution package
+      run: |
+        # Create dist directories if they don't exist
+        mkdir -p driver_dist\inc
+        mkdir -p driver_dist\cert
+        
+        # Copy header files
+        if (Test-Path "inc\vmulticlient.h") {
+          Copy-Item -Path "inc\vmulticlient.h" -Destination "driver_dist\inc\" -Force
+        }
+        if (Test-Path "inc\vmulticommon.h") {
+          Copy-Item -Path "inc\vmulticommon.h" -Destination "driver_dist\inc\" -Force
+        }
+        
+        # Copy documentation
+        if (Test-Path "README.md") {
+          Copy-Item -Path "README.md" -Destination "driver_dist\" -Force
+        }
+        if (Test-Path "status.md") {
+          Copy-Item -Path "status.md" -Destination "driver_dist\" -Force
+        }
+      shell: pwsh
+
+    - name: Download and merge build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: x64-build
+        path: driver_dist/x64
+      continue-on-error: true
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: vmulti-windows11-driver
+        path: driver_dist/
+        retention-days: 30
+
+    - name: Create Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: driver_dist/**/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

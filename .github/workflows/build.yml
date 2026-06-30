@@ -26,20 +26,10 @@ jobs:
     # Mặc định GitHub Runner có Windows SDK nhưng KHÔNG có WDK.
     # Bước này tải và cài đặt WDK (Windows Driver Kit) âm thầm.
     - name: Install Windows Driver Kit (WDK)
-      shell: powershell
+      shell: cmd
       run: |
-        echo "Downloading Windows Driver Kit (WDK)..."
-        # Link tải WDK tĩnh từ Microsoft (hỗ trợ Windows 11)
-        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2271891" -OutFile wdksetup.exe
-        
-        echo "Installing WDK (this may take a few minutes)..."
-        $Process = Start-Process -FilePath ".\wdksetup.exe" -ArgumentList "/q" -Wait -PassThru -NoNewWindow
-        
-        if ($Process.ExitCode -ne 0) {
-          Write-Error "WDK Installation failed with exit code $($Process.ExitCode)"
-          exit 1
-        }
-        echo "WDK Installation completed successfully."
+        echo "Installing WDK (Windows Driver Kit) 11 via Chocolatey..."
+        choco install windowsdriverkit11 -y --no-progress
 
     # Chạy file build.bat của bạn. Dùng shell cmd để tương thích tốt nhất.
     - name: Run Build Script (build.bat)

@@ -1,115 +1,57 @@
-name: Build VMulti Windows 11 Driver (x64)
+name: Build VMulti Windows 11 Driver
 
 on:
   push:
-    branches:
-      - master
-      - main
-      - develop
+    branches: [ "main", "master" ]
   pull_request:
-    branches:
-      - master
-      - main
-      - develop
+    branches: [ "main", "master" ]
+  # Cho phép kích hoạt build thủ công từ giao diện GitHub
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-latest
-    
+    name: Build x64 and ARM64 Drivers
+    # Sử dụng Windows Server 2022 (đã cài sẵn Visual Studio 2022 và Windows SDK)
+    runs-on: windows-2022 
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Visual Studio environment
-        uses: microsoft/setup-msbuild@v2
-        with:
-          vs-version: '17'
-      
-      - name: Install Windows Driver Kit (WDK)
-        shell: powershell
-        run: |
-          Write-Host "Installing Windows Driver Kit..."
-          
-          # Download WDK installer
-          $wdkUrl = "https://go.microsoft.com/fwlink/?linkid=2243390"
-          $wdkInstaller = "$env:TEMP\wdk.exe"
-          
-          Write-Host "Downloading WDK..."
-          try {
-            Invoke-WebRequest -Uri $wdkUrl -OutFile $wdkInstaller -TimeoutSec 600 -UseBasicParsing
-            Write-Host "Download completed"
-          } catch {
-            Write-Host "Download failed: $_"
-            exit 1
-          }
-          
-          Write-Host "Installing WDK (this may take several minutes)..."
-          & $wdkInstaller /quiet /norestart /features OptionId.WindowsDriverKit
-          
-          # Wait for installation to complete
-          $timeout = 0
-          while ((Get-Process wdk -ErrorAction SilentlyContinue) -and $timeout -lt 300) {
-            Start-Sleep -Seconds 5
-            $timeout += 5
-          }
-          
-          Start-Sleep -Seconds 30
-          Write-Host "WDK installation completed"
-      
-      - name: Build using build.bat
-        shell: cmd
-        run: |
-          echo Building VMulti driver...
-          call build.bat
-          if errorlevel 1 (
-            echo Build failed
-            exit /b 1
-          )
-          echo Build completed successfully
-      
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vmulti-driver-x64-build
-          path: driver_dist/
-          retention-days: 30
-          if-no-files-found: warn
-      
-      - name: List output files
-        shell: powershell
-        run: |
-          Write-Host "Build output files:"
-          if (Test-Path "driver_dist") {
-            Get-ChildItem -Path "driver_dist" -Recurse -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
-              Write-Host "  - $($_.FullName -replace [regex]::Escape((Get-Location).Path + '\'), '')"
-            }
-          }
-      
-      - name: Build Success Summary
-        shell: powershell
-        run: |
-          Write-Host ""
-          Write-Host "========================================================"
-          Write-Host "BUILD COMPLETED SUCCESSFULLY"
-          Write-Host "========================================================"
-          Write-Host ""
-          Write-Host "Project: VMulti Windows 11 HID Driver"
-          Write-Host "Architecture: x64 (x86_64)"
-          Write-Host "Configuration: Release"
-          Write-Host ""
-          Write-Host "Output Location: driver_dist/"
-          Write-Host ""
-          Write-Host "Installation Instructions:"
-          Write-Host "1. Enable Test Mode:"
-          Write-Host "   bcdedit /set testsigning on"
-          Write-Host ""
-          Write-Host "2. Install Certificate:"
-          Write-Host "   Right-click: driver_dist\cert\WDKTestCert.cer"
-          Write-Host "   Install Certificate > Local Machine > Trusted Root CA"
-          Write-Host ""
-          Write-Host "3. Install Driver:"
-          Write-Host "   Device Manager > Add legacy hardware"
-          Write-Host "   Have Disk > driver_dist\x64\vmulti.inf"
-          Write-Host ""
-          Write-Host "========================================================"
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        msbuild-architecture: x64
+
+    # Mặc định GitHub Runner có Windows SDK nhưng KHÔNG có WDK.
+    # Bước này tải và cài đặt WDK (Windows Driver Kit) âm thầm.
+    - name: Install Windows Driver Kit (WDK)
+      shell: powershell
+      run: |
+        echo "Downloading Windows Driver Kit (WDK)..."
+        # Link tải WDK tĩnh từ Microsoft (hỗ trợ Windows 11)
+        Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2271891" -OutFile wdksetup.exe
+        
+        echo "Installing WDK (this may take a few minutes)..."
+        $Process = Start-Process -FilePath ".\wdksetup.exe" -ArgumentList "/q" -Wait -PassThru -NoNewWindow
+        
+        if ($Process.ExitCode -ne 0) {
+          Write-Error "WDK Installation failed with exit code $($Process.ExitCode)"
+          exit 1
+        }
+        echo "WDK Installation completed successfully."
+
+    # Chạy file build.bat của bạn. Dùng shell cmd để tương thích tốt nhất.
+    - name: Run Build Script (build.bat)
+      shell: cmd
+      run: |
+        build.bat
+
+    # Upload thư mục driver_dist (chứa sys, inf, cer, exe, lib...) lên GitHub Artifacts
+    # Để bạn có thể tải về sau khi build xong.
+    - name: Upload Driver Distribution Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: vmulti-driver-dist
+        path: driver_dist/
+        retention-days: 14 # Giữ file trên GitHub trong 14 ngày
